@@ -365,7 +365,7 @@ const Page = () => {
                   </a>
                 </Button>
                 <Button variant="outline" size="icon" asChild className="hover:scale-110 transition-transform">
-                  <a href="https://linkedin.com/in/dhrubosen206" target="_blank" rel="noopener noreferrer">
+                  <a href="https://www.linkedin.com/in/dhrubo-balak-sen-39114322a/" target="_blank" rel="noopener noreferrer">
                     <Linkedin className="h-5 w-5" />
                   </a>
                 </Button>

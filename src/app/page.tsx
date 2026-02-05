@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import Script from 'next/script';
 import Dither from '@/components/ui/Dither';
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -16,6 +17,15 @@ import { KonamiToast } from "@/components/ui/konami-toast";
 import TerminalFooter from "@/components/ui/terminal-footer";
 import DeployButton from "@/components/ui/deploy-button";
 import HonestWorkToggle from "@/components/ui/honest-work-toggle";
+
+declare global {
+  interface Window {
+    grecaptcha?: {
+      ready: (cb: () => void) => void;
+      execute: (siteKey: string, options: { action: string }) => Promise<string>;
+    };
+  }
+}
 
 const projects = [
   {
@@ -97,9 +107,92 @@ const scrollToSection = (id: string) => {
 
 const Page = () => {
   const [honestMode, setHonestMode] = useState(false);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    company: '',
+    message: ''
+  });
+  const [formStatus, setFormStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [formError, setFormError] = useState<string | null>(null);
+  const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+
+  useEffect(() => {
+    if (formStatus !== 'success' && formStatus !== 'error') {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setFormStatus('idle');
+      setFormError(null);
+    }, 4500);
+
+    return () => window.clearTimeout(timer);
+  }, [formStatus]);
+
+  const handleFieldChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormStatus('submitting');
+    setFormError(null);
+
+    if (!recaptchaSiteKey) {
+      setFormStatus('error');
+      setFormError('Missing reCAPTCHA site key.');
+      return;
+    }
+
+    const grecaptcha = window.grecaptcha;
+
+    if (!grecaptcha) {
+      setFormStatus('error');
+      setFormError('reCAPTCHA failed to load. Please refresh and try again.');
+      return;
+    }
+
+    try {
+      const token = await new Promise<string>((resolve, reject) => {
+        grecaptcha.ready(() => {
+          grecaptcha
+            .execute(recaptchaSiteKey, { action: 'contact_form' })
+            .then(resolve)
+            .catch(reject);
+        });
+      });
+
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, token })
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data?.error ?? 'Unable to send message.');
+      }
+
+      setFormStatus('success');
+      setFormData({ name: '', email: '', company: '', message: '' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Something went wrong.';
+      setFormStatus('error');
+      setFormError(message);
+    }
+  };
 
   return (
     <div className="min-h-screen relative font-sans">
+      {recaptchaSiteKey ? (
+        <Script
+          src={`https://www.google.com/recaptcha/api.js?render=${recaptchaSiteKey}`}
+          strategy="afterInteractive"
+
+        />
+      ) : null}
       <KonamiToast />
       {/* Dither Background - Fixed */}
       <div className="dither-bg">
@@ -118,7 +211,7 @@ const Page = () => {
       {/* Hero Section */}
       <section className="relative flex flex-col items-center justify-center min-h-[90vh] px-4 text-center z-10">
         <div className="space-y-6 max-w-4xl">
-          <h1 className="text-4xl md:text-7xl font-bold tracking-tighter bg-clip-text text-transparent bg-gradient-to-b from-foreground to-foreground/50">
+          <h1 className="text-4xl md:text-7xl font-bold tracking-tighter bg-clip-text text-transparent bg-linear-to-b from-foreground to-foreground/50">
             <DecryptedText text="Dhrubo Balak Sen" speed={80} maxIterations={20} />
           </h1>
 
@@ -352,12 +445,84 @@ const Page = () => {
               </p>
             </div>
 
+            <form onSubmit={handleSubmit} className="mt-8 space-y-4 text-left">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label htmlFor="name" className="text-sm font-medium text-muted-foreground">Name</label>
+                  <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={handleFieldChange}
+                    className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-foreground/60 focus-visible:ring-2 focus-visible:ring-foreground/20"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="email" className="text-sm font-medium text-muted-foreground">Email</label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    value={formData.email}
+                    onChange={handleFieldChange}
+                    className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-foreground/60 focus-visible:ring-2 focus-visible:ring-foreground/20"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="company" className="text-sm font-medium text-muted-foreground">Company</label>
+                <input
+                  id="company"
+                  name="company"
+                  type="text"
+                  required
+                  value={formData.company}
+                  onChange={handleFieldChange}
+                  className="w-full rounded-md border border-border bg-background/80 px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-foreground/60 focus-visible:ring-2 focus-visible:ring-foreground/20"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="message" className="text-sm font-medium text-muted-foreground">Message</label>
+                <textarea
+                  id="message"
+                  name="message"
+                  required
+                  rows={5}
+                  value={formData.message}
+                  onChange={handleFieldChange}
+                  className="w-full resize-none rounded-md border border-border bg-background/80 px-3 py-2 text-sm text-foreground shadow-sm outline-none transition focus-visible:border-foreground/60 focus-visible:ring-2 focus-visible:ring-foreground/20"
+                />
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Button type="submit" size="lg" disabled={formStatus === 'submitting'} className="w-full sm:w-auto hover:scale-105 transition-transform">
+                  {formStatus === 'submitting' ? 'Sending...' : 'Send Message'}
+                </Button>
+              </div>
+
+              {formStatus === 'success' ? (
+                <p className="text-sm text-emerald-500">Thanks! Your message is on its way.</p>
+              ) : null}
+              {formStatus === 'error' ? (
+                <p className="text-sm text-red-400">{formError ?? 'Something went wrong.'}</p>
+              ) : null}
+
+              <p className="text-xs text-muted-foreground text-center">
+                This site is protected by reCAPTCHA and the Google <a href="https://policies.google.com/privacy" className="underline hover:text-foreground">Privacy Policy</a> and <a href="https://policies.google.com/terms" className="underline hover:text-foreground">Terms of Service</a> apply.
+              </p>
+            </form>
+
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8">
-              <Button asChild size="lg" className="w-full sm:w-auto hover:scale-105 transition-transform">
+              {/* <Button asChild size="lg" className="w-full sm:w-auto hover:scale-105 transition-transform">
                 <a href="mailto:dhrubosen206@gmail.com">
                   <Mail className="mr-2 h-4 w-4" /> Email Me
                 </a>
-              </Button>
+              </Button> */}
               <div className="flex gap-4">
                 <Button variant="outline" size="icon" asChild className="hover:scale-110 transition-transform">
                   <a href="https://github.com/DhruboBalakSen" target="_blank" rel="noopener noreferrer">
